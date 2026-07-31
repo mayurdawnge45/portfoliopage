@@ -120,17 +120,83 @@ document.querySelectorAll('.chip').forEach(chip => {
   });
 });
 
-// ---- contact form (front-end only)
+// ---- contact form (validation + email delivery)
+const MY_EMAIL = 'mayurdawnge45@gmail.com';
 const form = document.getElementById('form');
 const note = document.getElementById('note');
-form.addEventListener('submit', e => {
+
+const setError = (input, msg) => {
+  const wrap = input.closest('.field') || input.parentElement;
+  input.classList.toggle('invalid', !!msg);
+  let el = input.nextElementSibling;
+  if (!el || !el.classList.contains('err')) {
+    el = document.createElement('small');
+    el.className = 'err';
+    input.insertAdjacentElement('afterend', el);
+  }
+  el.textContent = msg || '';
+  el.style.display = msg ? 'block' : 'none';
+  return !msg;
+};
+
+const rules = {
+  name: v => (!v.trim() ? 'Please enter your name' : v.trim().length < 2 ? 'Name is too short' : v.trim().length > 100 ? 'Name must be under 100 characters' : ''),
+  email: v => (!v.trim() ? 'Please enter your email' : !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v.trim()) ? 'Enter a valid email address' : v.trim().length > 255 ? 'Email is too long' : ''),
+  subject: v => (v.trim().length > 150 ? 'Subject must be under 150 characters' : ''),
+  message: v => (!v.trim() ? 'Please write a short message' : v.trim().length < 10 ? 'Message must be at least 10 characters' : v.trim().length > 2000 ? 'Message must be under 2000 characters' : ''),
+};
+
+const fields = ['name', 'email', 'subject', 'message']
+  .map(n => form.elements[n])
+  .filter(Boolean);
+
+fields.forEach(input => {
+  input.addEventListener('blur', () => setError(input, rules[input.name](input.value)));
+  input.addEventListener('input', () => { if (input.classList.contains('invalid')) setError(input, rules[input.name](input.value)); });
+});
+
+const openMailFallback = (name, email, subject, message) => {
+  const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\n${message}`);
+  window.location.href = `mailto:${MY_EMAIL}?subject=${encodeURIComponent(subject)}&body=${body}`;
+};
+
+form.addEventListener('submit', async e => {
   e.preventDefault();
-  const data = new FormData(form);
-  const body = encodeURIComponent(
-    `Name: ${data.get('name')}\nEmail: ${data.get('email')}\n\n${data.get('message')}`
-  );
-  const subject = encodeURIComponent(data.get('subject') || 'Project enquiry from portfolio');
-  note.textContent = 'Opening your email app...';
-  window.location.href = `mailto:mayur@example.com?subject=${subject}&body=${body}`;
-  setTimeout(() => { note.textContent = 'Thanks! Your message is ready to send.'; form.reset(); }, 800);
+
+  let ok = true;
+  fields.forEach(input => { if (!setError(input, rules[input.name](input.value))) ok = false; });
+  if (!ok) {
+    note.className = 'note bad';
+    note.textContent = 'Please fix the highlighted fields.';
+    form.querySelector('.invalid')?.focus();
+    return;
+  }
+
+  const name = form.elements.name.value.trim();
+  const email = form.elements.email.value.trim();
+  const subject = (form.elements.subject?.value || '').trim() || 'Project enquiry from portfolio';
+  const message = form.elements.message.value.trim();
+
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  note.className = 'note';
+  note.textContent = 'Sending your message...';
+
+  try {
+    const res = await fetch(`https://formsubmit.co/ajax/${MY_EMAIL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ name, email, _subject: subject, message, _template: 'table', _captcha: 'false' }),
+    });
+    if (!res.ok) throw new Error('send failed');
+    note.className = 'note good';
+    note.textContent = 'Thanks! Your message has been sent — I\'ll reply within 24 hours.';
+    form.reset();
+  } catch (err) {
+    note.className = 'note bad';
+    note.textContent = 'Could not send directly — opening your email app instead...';
+    openMailFallback(name, email, subject, message);
+  } finally {
+    btn.disabled = false;
+  }
 });
